@@ -10,6 +10,9 @@ app.use(express.static("public"));
 
 let usernames = {};
 let rooms = {};
+let playerStatus = {};
+// socketId -> { name, inGame: false, opponent: null }
+
 
 function code() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -44,9 +47,49 @@ function publicRooms() {
 io.on("connection", socket => {
 
     socket.on("set_name", n => {
-        usernames[socket.id] = n || "Player";
+        const name = n || "Player";
+        usernames[socket.id] = name;
+
+        playerStatus[socket.id] = {
+            name,
+            inGame: false,
+            opponent: null
+        };
+
         socket.emit("room_list", publicRooms());
+        broadcastPlayers();
     });
+
+    socket.on("leave_to_home", () => {
+        const r = findRoom(socket.id);
+        if (r) {
+            r.players = r.players.filter(p => p !== socket.id);
+            socket.leave(r.code);
+            if (r.players.length === 0) delete rooms[r.code];
+        }
+
+        if (playerStatus[socket.id]) {
+            playerStatus[socket.id].inGame = false;
+            playerStatus[socket.id].opponent = null;
+        }
+
+        broadcastPlayers();
+    });
+
+    socket.on("disconnect", () => {
+        delete usernames[socket.id];
+        delete playerStatus[socket.id];
+
+        const r = findRoom(socket.id);
+        if (r) {
+            r.players = r.players.filter(p => p !== socket.id);
+            if (r.players.length === 0) delete rooms[r.code];
+        }
+
+        broadcastPlayers();
+    });
+
+
 
     socket.on("create_room", pub => {
         const r = newRoom(socket.id, pub);
@@ -65,6 +108,15 @@ io.on("connection", socket => {
         r.players.push(socket.id);
         socket.join(c);
         r.game = newGame(r.players[0], r.players[1]);
+
+        const [a, b] = r.players;
+        playerStatus[a].inGame = true;
+        playerStatus[b].inGame = true;
+        playerStatus[a].opponent = usernames[b];
+        playerStatus[b].opponent = usernames[a];
+
+        broadcastPlayers();
+
 
         io.to(c).emit("room_ready", {
             players: r.players.map(id => usernames[id]),
@@ -224,5 +276,13 @@ function view(g) {
     };
 }
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT);
+function broadcastPlayers() {
+    io.emit("players_online",
+        Object.values(playerStatus)
+    );
+}
+
+
+server.listen(3000, () =>
+    console.log("http://localhost:3000")
+);
