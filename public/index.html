@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .card {
+            background: #111827;
+            padding: 24px;
+            border-radius: 16px;
+            width: 360px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, .4);
+        }
+
+        h2,
+        h3 {
+            text-align: center;
+            margin-top: 0;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            margin-top: 6px;
+        }
+
+        button {
+            padding: 10px 14px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 6px 4px;
+            background: #2563eb;
+            color: white;
+            transition: .2s;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            background: #1d4ed8;
+        }
+
+        button.secondary {
+            background: #374151;
+        }
+
+        button.secondary:hover {
+            background: #4b5563;
+        }
+
+        #rooms button {
+            width: 100%;
+            background: #059669;
+        }
+
+        #rooms button:hover {
+            background: #047857;
+        }
+
+        .phase {
+            text-align: center;
+            font-size: 14px;
+            opacity: .8;
+            margin-bottom: 8px;
+        }
+
+        .scorebox {
+            display: flex;
+            justify-content: space-between;
+            background: #1f2937;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        #info {
+            background: #0b1220;
+            padding: 12px;
+            border-radius: 10px;
+            min-height: 60px;
+            margin-bottom: 12px;
+            white-space: pre-line;
+        }
+
+        #buttons {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .numBtn {
+            width: 64px;
+            height: 64px;
+            font-size: 22px;
+            border-radius: 14px;
+            background: #9333ea;
+        }
+
+        .numBtn:hover {
+            background: #7e22ce;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+
+        <h2>⚽ Hand Football</h2>
+
+        <div id="login">
+            Name
+            <input id="nameBox">
+            <button onclick="enter()">Enter Lobby</button>
+        </div>
+
+        <div id="lobby" style="display:none">
+            <h3>Public Rooms</h3>
+            <div id="rooms"></div>
+
+            <button onclick="create(true)">Create Public</button>
+            <button class="secondary" onclick="create(false)">Create Private</button>
+
+            <hr>
+
+            Join by Code
+            <input id="codeBox">
+            <button onclick="joinCode()">Join Room</button>
+        </div>
+
+        <div id="game" style="display:none">
+
+            <div class="phase" id="phase"></div>
+
+            <div class="scorebox" id="scorebox"></div>
+
+            <div id="info"></div>
+
+            <div id="buttons"></div>
+
+        </div>
+
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const s = io();
+
+        const infoDiv = document.getElementById("info");
+        const buttonsDiv = document.getElementById("buttons");
+        const phaseDiv = document.getElementById("phase");
+        const scoreDiv = document.getElementById("scorebox");
+
+        function enter() {
+            s.emit("set_name", nameBox.value);
+            login.style.display = "none";
+            lobby.style.display = "block";
+        }
+
+        function create(p) { s.emit("create_room", p); }
+        function joinCode() { s.emit("join_room", codeBox.value.toUpperCase()); }
+
+        s.on("room_list", list => {
+            rooms.innerHTML = "";
+            list.forEach(r => {
+                const b = document.createElement("button");
+                b.innerText = r.host + " (" + r.code + ")";
+                b.onclick = () => s.emit("join_room", r.code);
+                rooms.appendChild(b);
+            });
+        });
+
+        s.on("room_created", c => info("Room " + c + " — waiting for opponent"));
+
+        s.on("room_ready", d => {
+            lobby.style.display = "none";
+            game.style.display = "block";
+
+            if (d.callerId === s.id) {
+                info("You call toss");
+                phase("Toss Call");
+                buttons([
+                    ["Odd", () => s.emit("toss_call", "odd")],
+                    ["Even", () => s.emit("toss_call", "even")]
+                ]);
+            } else {
+                info(d.caller + " is calling toss…");
+                phase("Waiting");
+                buttons([]);
+            }
+        });
+
+        s.on("toss_result", d => {
+            info("Toss number: " + d.number + "\nWinner: " + d.winner);
+        });
+
+        s.on("game_update", g => {
+
+            // phase label
+            phase(g.state.replaceAll("_", " "));
+
+            // score display
+            scoreDiv.innerHTML =
+                Object.entries(g.scores)
+                    .map(([n, s]) => `${n}: <b>${s}</b>`)
+                    .join(" | ");
+
+            // message
+            info(g.msg || "");
+
+            // clear buttons first
+            buttonsDiv.innerHTML = "";
+
+            // ---------- STATE BUTTON LOGIC ----------
+
+            if (g.state === "TOSS_WAIT_PROCEED") {
+                if (g.tossWinner === nameBox.value) {
+                    buttons([["Proceed", () => s.emit("toss_proceed")]]);
+                }
+                return;
+            }
+
+            if (g.state === "TOSS_DECIDE") {
+                if (g.tossWinner === nameBox.value) {
+                    buttons([
+                        ["Center", () => s.emit("toss_decide", "center")],
+                        ["Offside", () => s.emit("toss_decide", "offside")]
+                    ]);
+                } else {
+                    info(g.tossWinner + " is choosing start side…");
+                }
+                return;
+            }
+
+            if (g.state === "PASS") {
+                num([1, 2, 3, 4]);
+                return;
+            }
+
+            if (g.state === "GOAL") {
+                num([5, 6]);
+                return;
+            }
+
+            if (g.state === "GAME_OVER") {
+                buttons([["Rematch (reload)", () => location.reload()]]);
+                return;
+            }
+        });
+
+
+        function num(arr) {
+            buttons(arr.map(n => [n, () => s.emit("play", n), true]));
+        }
+
+        function buttons(arr) {
+            buttonsDiv.innerHTML = "";
+            arr.forEach(([text, fn, isNum]) => {
+                const b = document.createElement("button");
+                b.innerText = text;
+                b.onclick = fn;
+                if (isNum) b.className = "numBtn";
+                buttonsDiv.appendChild(b);
+            });
+        }
+
+        function info(t) { infoDiv.innerText = t; }
+        function phase(t) { phaseDiv.innerText = t; }
+    </script>
+
+</body>
+
+</html>
