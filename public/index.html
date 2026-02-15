@@ -221,7 +221,21 @@
                     .join(" | ");
 
             // message
-            info(g.msg || "");
+            let status = "";
+
+            if (g.state === "PASS") {
+                status += "⚽ Ball: " + (g.ball || "?") + "\n";
+                status += "Pass: " + g.passCount + " / 3\n";
+            }
+
+            if (g.state === "GOAL") {
+                status += "🎯 Goal chance for: " + g.ball + "\n";
+            }
+
+            if (g.msg) status += "\n" + g.msg;
+
+            info(status);
+
 
             // clear buttons first
             buttonsDiv.innerHTML = "";
