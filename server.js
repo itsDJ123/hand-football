@@ -177,7 +177,8 @@ function resolveRound(r) {
     else if (g.state === "GOAL") {
         if (m1 === m2) {
             g.ball = other(g, g.ball);
-            g.msg = "Saved";
+            g.msg = "Saved — possession changes";
+            g.state = "PASS";   // ✅ FIX
         } else {
             g.scores[g.ball]++;
             g.msg = "GOAL";
@@ -191,6 +192,7 @@ function resolveRound(r) {
         }
         g.passCount = 0;
     }
+
 
     g.moves = {};
     io.to(r.code).emit("game_update", view(g));
